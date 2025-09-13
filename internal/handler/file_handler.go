@@ -119,5 +119,5 @@ func (h* FileHandler) ListFiles(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusFound, echo.Map{"files":files})
+	return c.JSON(http.StatusOK, echo.Map{"files":files})
 }
