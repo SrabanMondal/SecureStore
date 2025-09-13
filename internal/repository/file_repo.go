@@ -2,12 +2,14 @@ package repositories
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/SrabanMondal/SecureStore/internal/utils"
 	"github.com/SrabanMondal/SecureStore/internal/models"
+	"github.com/SrabanMondal/SecureStore/internal/utils"
 )
 
 type FileRepository struct {
@@ -109,4 +111,41 @@ func (r *FileRepository) UpdateFileStatus(ctx context.Context, id, status string
 		return err
 	}
 	return nil
+}
+
+func (r *FileRepository) ListFilesByStatus(ctx context.Context, statuses []string) ([]models.File, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+
+	args := make([]any, len(statuses))
+	placeholders := make([]string, len(statuses))
+	for i, s := range statuses {
+		args[i] = s
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	query := `SELECT id, user_id, file_path, size, is_encrypted, storage_key, created_at, status, uploaded_at
+			  FROM files WHERE status IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := r.DB.Query(ctx, query, args...)
+	if err != nil {
+		utils.Error.Err(err).Msg("failed to list files by status")
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []models.File
+	for rows.Next() {
+		var f models.File
+		if err := rows.Scan(
+			&f.ID, &f.UserID, &f.FilePath, &f.Size, &f.IsEncrypted, &f.StorageKey,
+			&f.CreatedAt, &f.Status, &f.UploadedAt,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+
+	return files, nil
 }

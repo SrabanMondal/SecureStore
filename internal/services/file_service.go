@@ -122,14 +122,45 @@ func (s *FileService) DownloadDecrypt(ctx context.Context, file *models.File) ([
 }
 
 func (s *FileService) DeleteFile(ctx context.Context, fileID string) error {
-	file, err := s.FileRepo.GetFileByID(ctx, fileID)
+	// just mark for deletion
+	return s.FileRepo.UpdateFileStatus(ctx, fileID, "deleting")
+}
+
+func (s *FileService) CleanupDeletedFiles(ctx context.Context) error {
+	rows, err := s.FileRepo.ListFilesByStatus(ctx, []string{"deleting"})
 	if err != nil {
 		return err
 	}
 
-	if err := s.Minio.RemoveObject(ctx, s.Bucket, file.StorageKey, minio.RemoveObjectOptions{}); err != nil {
+	for _, f := range rows {
+		err := s.Minio.RemoveObject(ctx, s.Bucket, f.StorageKey, minio.RemoveObjectOptions{})
+		if err != nil {
+			continue
+		}
+
+		_ = s.FileRepo.DeleteFile(ctx, f.ID)
+	}
+
+	return nil
+}
+
+func (s *FileService) ReconcilePendingFiles(ctx context.Context) error {
+	rows, err := s.FileRepo.ListFilesByStatus(ctx, []string{"pending"})
+	if err != nil {
+		utils.Error.Err(err).Msg("failed to list pending files")
 		return err
 	}
 
-	return s.FileRepo.DeleteFile(ctx, fileID)
+	for _, f := range rows {
+		_, err := s.Minio.StatObject(ctx, s.Bucket, f.StorageKey, minio.StatObjectOptions{})
+		if err != nil {
+			utils.Warn.Debug().Str("file_id", f.ID).Msg("pending file missing in MinIO, deleting DB row")
+			_ = s.FileRepo.DeleteFile(ctx, f.ID)
+			continue
+		}
+
+		_ = s.FileRepo.MarkFileUploaded(ctx, f.ID)
+	}
+
+	return nil
 }
