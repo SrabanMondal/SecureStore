@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -100,4 +101,13 @@ func (h *ShareHandler) ValidatePassword(c echo.Context) error {
 	default:
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "unexpected content type"})
 	}
+}
+
+func (h* ShareHandler) DeleteLink(c echo.Context) error {
+	token := c.Param("id")
+	err:= h.ShareSvc.DeleteLink(context.Background(),token)
+	if err!=nil{
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, echo.Map{"message":"deleted"})
 }

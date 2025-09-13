@@ -117,3 +117,8 @@ func (s *ShareService) GetDownloadContent(ctx context.Context, file *models.File
 func (s *ShareService) CleanupExpiredShares(ctx context.Context) error {
 	return s.ShareRepo.DeleteExpiredShareLinks(ctx)
 }
+
+
+func (s *ShareService) DeleteLink(ctx context.Context, id string) error{
+	return s.ShareRepo.DeleteShareLink(ctx, id)
+}

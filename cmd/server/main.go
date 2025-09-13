@@ -20,7 +20,6 @@ import (
 	"github.com/SrabanMondal/SecureStore/internal/utils"
 )
 
-// 🔹 JWT Middleware
 func JWTMiddleware(secret string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -91,8 +90,55 @@ func main() {
 	api.GET("/files", fileHandler.ListFiles)
 
 	api.POST("/shares", shareHandler.CreateShareLink)
+	api.DELETE("/shares/:id",shareHandler.DeleteLink)
 	e.GET("/api/shares/:token", shareHandler.AccessShareLink)        
 	e.POST("/api/shares/:token/validate", shareHandler.ValidatePassword)
+
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := fileSvc.CleanupDeletedFiles(ctx); err != nil {
+					utils.Error.Err(err).Msg("cleanup deleted files failed")
+				} else {
+					utils.Info.Info().Msg("deleted files cleanup done")
+				}
+			}
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := fileSvc.ReconcilePendingFiles(ctx); err != nil {
+					utils.Error.Err(err).Msg("reconcile pending files failed")
+				} else {
+					utils.Info.Info().Msg("pending files reconciled")
+				}
+			}
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := shareRepo.DeleteExpiredShareLinks(ctx); err != nil {
+					utils.Error.Err(err).Msg("expired share cleanup failed")
+				} else {
+					utils.Info.Info().Msg("expired share links cleaned")
+				}
+			}
+		}
+	}()
 
 	utils.Info.Info().Msgf("Server running on %s", cfg.AppPort)
 	e.Logger.Fatal(e.Start(cfg.AppPort))
