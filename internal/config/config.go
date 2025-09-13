@@ -19,6 +19,7 @@ type Config struct {
 	Minio   *minio.Client
 	JWTKey  string
 	AppPort string
+	FileKey []byte
 }
 
 func LoadConfig(ctx context.Context) *Config {
@@ -77,10 +78,12 @@ func LoadConfig(ctx context.Context) *Config {
 	appPort = ":"+appPort
 	utils.Info.Info().Msg("Config loaded successfully")
 
+	fileKey := utils.LoadKey()
 	return &Config{
 		DB:      dbpool,
 		Minio:   minioClient,
 		JWTKey:  jwtKey,
 		AppPort: appPort,
+		FileKey: fileKey,
 	}
 }
