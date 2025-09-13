@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	//"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+
 	//"github.com/minio/minio-go/v7"
 	//"github.com/minio/minio-go/v7/pkg/credentials"
 
@@ -54,7 +58,8 @@ func JWTMiddleware(secret string) echo.MiddlewareFunc {
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	utils.InitLogger()
 	cfg := config.LoadConfig(ctx)
 
@@ -94,17 +99,44 @@ func main() {
 	e.GET("/api/shares/:token", shareHandler.AccessShareLink)        
 	e.POST("/api/shares/:token/validate", shareHandler.ValidatePassword)
 
+	utils.Info.Info().Msgf("Server running on %s", cfg.AppPort)
+	//e.Logger.Fatal(e.Start(cfg.AppPort))
 
+	startBackgroundJobs(ctx, fileSvc, shareRepo)
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		if err := e.Start(cfg.AppPort); err != nil {
+			utils.Error.Err(err).Msg("server stopped")
+		}
+	}()
+
+	<-quit
+	utils.Info.Info().Msg("shutting down server...")
+
+	cancel()
+
+	ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelTimeout()
+	if err := e.Shutdown(ctxTimeout); err != nil {
+		utils.Error.Err(err).Msg("server forced shutdown")
+	}
+}
+
+func startBackgroundJobs(ctx context.Context, fileSvc *services.FileService, shareRepo *repositories.ShareRepository) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				utils.Info.Info().Msg("cleanup deleted files job stopped")
+				return
 			case <-ticker.C:
 				if err := fileSvc.CleanupDeletedFiles(ctx); err != nil {
 					utils.Error.Err(err).Msg("cleanup deleted files failed")
-				} else {
-					utils.Info.Info().Msg("deleted files cleanup done")
 				}
 			}
 		}
@@ -115,11 +147,12 @@ func main() {
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				utils.Info.Info().Msg("reconcile pending files job stopped")
+				return
 			case <-ticker.C:
 				if err := fileSvc.ReconcilePendingFiles(ctx); err != nil {
 					utils.Error.Err(err).Msg("reconcile pending files failed")
-				} else {
-					utils.Info.Info().Msg("pending files reconciled")
 				}
 			}
 		}
@@ -130,16 +163,14 @@ func main() {
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				utils.Info.Info().Msg("expired share cleanup job stopped")
+				return
 			case <-ticker.C:
 				if err := shareRepo.DeleteExpiredShareLinks(ctx); err != nil {
 					utils.Error.Err(err).Msg("expired share cleanup failed")
-				} else {
-					utils.Info.Info().Msg("expired share links cleaned")
 				}
 			}
 		}
 	}()
-
-	utils.Info.Info().Msgf("Server running on %s", cfg.AppPort)
-	e.Logger.Fatal(e.Start(cfg.AppPort))
 }
