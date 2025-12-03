@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: securestore-postgres
+    environment:
+      POSTGRES_DB: securestore
+      POSTGRES_USER: securestore_user
+      POSTGRES_PASSWORD: securestore_pass
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - securestore-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securestore_user -d securestore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate:latest
+    container_name: securestore-migrate
+    volumes:
+      - ./migrations:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://securestore_user:securestore_pass@postgres:5432/securestore?sslmode=disable", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - securestore-network
+
+  minio:
+    image: minio/minio
+    container_name: securestore-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - securestore-network
+
+  backend:
+    build: .
+    container_name: securestore-backend
+    environment:
+      DATABASE_URL: postgres://securestore_user:securestore_pass@postgres:5432/securestore?sslmode=disable
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      JWT_SECRET: 0d252832fa0a32ea88e0cc27c58eba2359439b306fa51346edb739eb76f36f8c
+      FILE_ENC_KEY: KX9iBAHgWt4J3KE9uV4Da8hUTbwMkYQ5g5Ojb7AiPeU=
+      SERVER_PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - securestore-network
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  securestore-network:
+    driver: bridge
