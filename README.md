@@ -8,6 +8,8 @@ separation of concerns (handlers → services → repositories → utils),
 supports presigned uploads/downloads, and includes background workers
 for cleanup & reconciliation, ensuring fault-tolerant operation.
 
+**Frontend** - *https://github.com/SrabanMondal/secure-store-frontend*
+
 ## 🚀 Features
 
 ### Authentication & Authorization
